@@ -3,54 +3,119 @@ import random as rnd
 import matplotlib.pyplot as plt
 from matplotlib.animation import FuncAnimation
 
-
 class Lattice:
-    def __init__(self, size, J, T, iterations, algorithm='glauber', thermalisation = 100, sampling = 10):
+    """ 
+    Initialisation of the lattice requires the following parameters:
+        size (Int): Size of the lattice (size x size)
+        J (float): Interaction strength
+        T (float): Temperature
+        iterations (Int): Number of iterations
+        algorithm (str): 'glauber' or 'kawasaki'
+        thermalisation (Int): Number of thermalisation sweeps
+        sampling (Int): Sampling frequency
+        start_config: 'hot', 'cold', or a numpy array
+
+    During the simulation the following Observables are calculated:
+        Total Magnetisation of the lattice
+        Total Energy of the Lattice
+    """
+
+    def __init__(self, size, J, T, iterations, algorithm='glauber', thermalisation = 100, sampling = 10, start_config=None):
         self.size = size
-        self.grid = np.random.choice([-1, 1], size=(size, size))
+
+        if isinstance(start_config, np.ndarray):
+            self.grid = start_config.copy()
+
+        elif start_config == "cold":
+            self.grid = -np.ones((size, size), dtype=int)
+
+        elif start_config == "hot":
+            self.grid = np.random.choice([-1, 1], size=(size, size))
+
+        else:
+            # default: random (hot start)
+            self.grid = np.random.choice([-1, 1], size=(size, size))
+
         self.J = J
         self.T = T
         self.thermalisation = thermalisation
         self.sampling = sampling
         self.iteration = iterations
         self.algorithm = algorithm
+
         self.magnetisation = []
-        self.susceptibility = []
         self.totenergy = []
 
-    def energy(self, i , j):
-        # Calculate the energy of the site at (i, j)
+        # Compute the initial Energy and Magnetisation
+        self.current_magnetisation = np.sum(self.grid) # to keep track of the current magnetisation
+        self.magnetisation.append(self.current_magnetisation) # to append every sampled magnetisation
+
+        total_energy = 0
+        for i in range(self.size):
+            for j in range(self.size):
+                total_energy += self.local_energy(i, j)
+
+        self.current_totenergy = total_energy / 2  # to keep track of the current total energy
+        self.totenergy.append(self.current_totenergy)  # to append every sampled total energy
+
+    def local_energy(self, i , j):
+        """
+        Calculate the local energy of the site at (i, j) using the 4 nearest neighbours with periodic boundary conditions
+        E = - J * s_ij * (s_left + s_right + s_up + s_down)
+        """
         left = self.grid[i, (j - 1) % self.size]
         right = self.grid[i, (j + 1) % self.size]
         up = self.grid[(i - 1) % self.size, j]
         down = self.grid[(i + 1) % self.size, j]
         return -self.J * self.grid[i, j] * (left + right + up + down)
     
-    def glauber_update(self, i, j):
-        old_energy = self.energy(i, j)
+    def glauber_update(self, i, j, k):
+        """
+        Perform a single Glauber update using the metropolis algorithm
+            1. Calculate the change in energy ΔE if the spin at (i, j) is flipped using ΔE = -2 * local_energy
+            2. If ΔE <= 0, accept the new configuration
+            3. If ΔE > 0, accept the new configuration with probability exp(-ΔE / T), otherwise revert the spin
+        """
+
+        old_energy = self.local_energy(i, j)
         proposed_spin = -self.grid[i, j]
         self.grid[i, j] = proposed_spin
-        new_energy = self.energy(i, j)
-        delta_E = new_energy - old_energy
+        delta_E = -2 * old_energy # Change in energy
+        delta_M = 2 * proposed_spin  # Change in magnetisation
 
         if delta_E <= 0:
             # Accept the new configuration
+            self.current_totenergy += delta_E
+            self.current_magnetisation += delta_M
             return
         else:
             acceptance_prob = np.exp(-delta_E / self.T)
-            if rnd.random() < acceptance_prob:
+            if k < acceptance_prob:
                 # Accept the new configuration
+                self.current_totenergy += delta_E
+                self.current_magnetisation += delta_M
                 return
             else:
                 # Reject the new configuration, revert the spin
                 self.grid[i, j] = -proposed_spin
 
-    def kawaski_update(self, i1, j1, i2, j2):
-        old_energy_1 = self.energy(i1, j1)
-        old_energy_2 = self.energy(i2, j2)
+    def kawaski_update(self, i1, j1, i2, j2, k):
+        """
+        Perform a single Kawasaki update using the metropolis algorithm
+            1. Calculate the change in energy ΔE if the spins at (i1, j1) and (i2, j2) are swapped
+                a. CHECK 1: If they are the same spin, do nothing 
+                b. CHECK 2: If they are adjacent, subtract the interaction energy between them 
+                ΔE = -2 * (local_energy_1 + local_energy_2) - 4 * J
+                c. If they are not adjacent: ΔE = -2 * (local_energy_1 + local_energy_2)
+            2. If ΔE <= 0, accept the new configuration
+            3. If ΔE > 0, accept the new configuration with probability exp(-ΔE / T), otherwise revert the spins
+        """
 
         if self.grid[i1, j1] == self.grid[i2, j2]:
             return  # No point in swapping identical spins
+
+        old_energy_1 = self.local_energy(i1, j1)
+        old_energy_2 = self.local_energy(i2, j2)
 
         # Swap spins
         proposed_spin_1 = self.grid[i2, j2]
@@ -58,98 +123,80 @@ class Lattice:
         self.grid[i1, j1] = proposed_spin_1
         self.grid[i2, j2] = proposed_spin_2
 
-        new_energy_1 = self.energy(i1, j1)
-        new_energy_2 = self.energy(i2, j2)
+        new_energy_1 = self.local_energy(i1, j1)
+        new_energy_2 = self.local_energy(i2, j2)
 
-        #check if sites are adjacent by checking the distance vector
-        #why is it minus 4J, because we are removing the interaction between the two swapped spins
-        if abs(i1 - i2) + abs(j1 - j2) == 1:
-            delta_E = (new_energy_1 + new_energy_2) - (old_energy_1 + old_energy_2) - 4 * self.J * proposed_spin_1 * proposed_spin_2
-
-        else:
-            delta_E = (new_energy_1 + new_energy_2) - (old_energy_1 + old_energy_2)
+        delta_E = (new_energy_1 + new_energy_2) - (old_energy_1 + old_energy_2)
 
         if delta_E <= 0:
-            # Accept the new configuration
+            self.current_totenergy += delta_E
             return
         else:
             acceptance_prob = np.exp(-delta_E / self.T)
-            if rnd.random() < acceptance_prob:
-                # Accept the new configuration
+            if k < acceptance_prob:
+                self.current_totenergy += delta_E
                 return
             else:
-                # Reject the new configuration, revert the spins
                 self.grid[i1, j1] = proposed_spin_2
                 self.grid[i2, j2] = proposed_spin_1
         
+
     def sweep(self):
+        """
+        Performs a single sweep of the Metropolis algorithm over the entire lattice (N^2 proposed updates)
+        *** Random numbers are generated in a single array to reduce the computation time. (2 sets of random numbers )
+        """
         num_sites = self.size ** 2
 
         if self.algorithm == 'glauber':
-            # Generate all random i, j indices at once
             i_coords = np.random.randint(0, self.size, size=num_sites)
             j_coords = np.random.randint(0, self.size, size=num_sites)
+            k = np.random.rand(num_sites)
 
-            # Loop through the pre-generated coordinates
-            for new_i, new_j in zip(i_coords, j_coords):
-                self.glauber_update(new_i, new_j)
+            for new_i, new_j, k_val in zip(i_coords, j_coords, k):
+                self.glauber_update(new_i, new_j, k_val)
 
         elif self.algorithm == 'kawasaki':
-            # Generate all random i1, j1, i2, j2 indices at once
             i1_coords = np.random.randint(0, self.size, size=num_sites)
             j1_coords = np.random.randint(0, self.size, size=num_sites)
             i2_coords = np.random.randint(0, self.size, size=num_sites)
             j2_coords = np.random.randint(0, self.size, size=num_sites)
+            k = np.random.rand(num_sites)
 
-            # Loop through the pre-generated coordinates
-            for i1, j1, i2, j2 in zip(i1_coords, j1_coords, i2_coords, j2_coords):
-                # Ensure distinct sites
-                while i1 == i2 and j1 == j2:
+            for i1, j1, i2, j2, k_val in zip(i1_coords, j1_coords, i2_coords, j2_coords, k):
+                while i1 == i2 and j1 == j2: # Ensure distinct sites, if the sites are the same, resample
                     i2 = np.random.randint(0, self.size)
                     j2 = np.random.randint(0, self.size)
-                self.kawaski_update(i1, j1, i2, j2)
-
-
-    def cal_magnetisation(self):
-        self.magnetisation.append(np.sum(self.grid))
-
-    def cal_total_energy(self):
-        total_energy = 0
-        for i in range(self.size):
-            for j in range(self.size):
-                total_energy += self.energy(i, j)
-        self.totenergy.append(total_energy / 2)  # Each pair counted twice
-
-    def observables(self):
-        avg_mag = np.mean(np.abs(self.magnetisation))
-        avg_E = np.mean(self.totenergy)
-
-        susceptibility = (np.mean(np.array(self.magnetisation) ** 2) - np.mean(self.magnetisation) ** 2) / (self.size**2 * self.T)
-
-        E_sq = np.mean(np.array(self.totenergy) ** 2)
-        heat_capacity = (E_sq - avg_E ** 2) / (self.size**2 * self.T ** 2)
-        print("Average Magnetization:", avg_mag, "Average Energy:", avg_E, "Susceptibility:", susceptibility, "Heat Capacity:", heat_capacity)
-
-        return avg_mag, avg_E, susceptibility, heat_capacity
+                self.kawaski_update(i1, j1, i2, j2, k_val)
 
     def sim(self):
-        self.magnetisation = []
-        self.totenergy = []
+        """
+        Runs a complete simulation of the Ising model
+        Yields the current grid, magnetisation and total energy at each sampling step
+        1. Perform thermalisation sweeps
+        2. Perform iteration sweeps, sampling every 'sampling' sweeps
+        3. Yield the sampled grid, magnetisation and total energy
+        """
         for i in range(self.thermalisation):
             self.sweep()
-        
+
         for i in range(self.iteration):
             self.sweep()
             if i % self.sampling == 0:
-                self.cal_magnetisation()
-                self.cal_total_energy()
+                self.magnetisation.append(self.current_magnetisation)
+                self.totenergy.append(self.current_totenergy)
                 yield self.grid.copy(), self.magnetisation.copy(), self.totenergy.copy()
-        
+
 
     def animate(self, interval=100):
+        """
+        Animates the Ising model simulation and keeps track of the Magnetisation and Total Energy
+        """
         fig, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize=(15, 4))
         im = ax1.imshow(self.grid, cmap="coolwarm", vmin=-1, vmax=1, animated=True)
         ax1.set_title("Lattice")
+        cbar = plt.colorbar(im, ax=ax1, ticks=[-1, 1])
+        cbar.ax.set_yticklabels(['Spin Down', 'Spin Up'])
         
         line, = ax2.plot([], [], 'o-', markersize=2)
         ax2.set_xlim(0, self.iteration)
@@ -177,4 +224,79 @@ class Lattice:
         plt.tight_layout()
         plt.show()
         return ani
+    
+class Observables:
+    def __init__(self, Lattice):
+        """
+        Initialisation of the Observables class requires a Lattice object
+        It inherits the magnetisation and total energy data from the Lattice object
+        """
+        self.Lattice = Lattice
+        self.magnetisation = Lattice.magnetisation
+        self.totenergy = Lattice.totenergy
 
+    def com_average_magnetisation(self, mag):
+        return np.mean(np.abs(mag)) # it computes the absolute value of the magnetisation
+    
+    def com_average_energy(self, E):
+        return np.mean(E)
+    
+    def com_susceptibility(self, mag):
+        return (np.mean(np.array(mag) ** 2) - np.mean(mag) ** 2) / (self.Lattice.size**2 * self.Lattice.T)
+    
+    def com_heat_capacity(self, E):
+        return (np.mean(np.array(E) ** 2) - np.mean(E) ** 2) / (self.Lattice.size**2 * self.Lattice.T ** 2)
+
+    def observables(self):
+        """
+        Computes the average Magnetisation, average Energy, Susceptibility and Heat Capacity for an entire set of sampled states
+        """
+        self.susceptibility = self.com_susceptibility(self.magnetisation)
+        self.heat_capacity = self.com_heat_capacity(self.totenergy)
+        self.avg_mag = self.com_average_magnetisation(self.magnetisation)
+        self.avg_E = self.com_average_energy(self.totenergy)
+
+        print("Average Magnetization:", self.avg_mag, "Average Energy:", self.avg_E, "Susceptibility:", self.susceptibility, "Heat Capacity:", self.heat_capacity)
+        return self.avg_mag, self.avg_E, self.susceptibility, self.heat_capacity
+    
+    def Jackknife_errors(self, arr, function):
+        """
+        Computes the Jackknife error for a set of data 'arr' using the statistic defined by 'function'
+        1. computes the function on the entire array
+        2. computes the function on n jackknife samples, each with one element removed
+        3. computes the jackknife error using the formula
+           jackknife = sqrt( sum (c_i - c)^2 )
+        """
+        n = len(arr)
+        c = function(arr)
+        jackknife_samples = np.array([function(np.delete(arr, i)) for i in range(n)])
+        jackknife_error = np.sqrt(np.sum((ci - c)**2 for ci in jackknife_samples))
+        return jackknife_error
+    
+    def Bootstrap_errors(self, arr, function, num_samples=1000):
+        """
+        Computes the Bootstrap error for a set of data 'arr' using the statistic defined by 'function'
+        1. generates 'num_samples' bootstrap samples by resampling with replacement
+        2. computes the function on each bootstrap sample
+        3. computes the bootstrap error as the standard deviation of the bootstrap statistics
+        """
+        n = len(arr)
+        bootstrap_samples = np.random.choice(arr, size=(num_samples, n), replace=True)
+        bootstrap_statistics = np.array([function(sample) for sample in bootstrap_samples])
+        bootstrap_error = np.std(bootstrap_statistics)
+        return bootstrap_error
+    
+    def observables_with_errors(self, function = 'jackknife'):
+        self.observables()
+
+        if function == 'jackknife':
+            function = self.Jackknife_errors
+        elif function == 'bootstrap':
+            function = self.Bootstrap_errors
+        
+        self.mag_error = function(self.magnetisation, self.com_average_magnetisation)
+        self.E_error = function(self.totenergy, self.com_average_energy)
+        self.susceptibility_error = function(self.magnetisation, self.com_susceptibility)
+        self.heat_capacity_error = function(self.totenergy, self.com_heat_capacity)
+
+        return self.mag_error, self.E_error, self.susceptibility_error, self.heat_capacity_error
