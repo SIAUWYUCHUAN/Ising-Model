@@ -56,6 +56,22 @@ class Lattice:
 
         self.current_totenergy = total_energy / 2  # to keep track of the current total energy
 
+        num_sites = (self.iteration + self.thermalisation) * self.size ** 2 # number of iterations
+
+        # Generate all random numbers at one shot
+        if self.algorithm == "glauber":
+            self.i1_coords = np.random.randint(0, self.size, size=num_sites)
+            self.j1_coords = np.random.randint(0, self.size, size=num_sites)
+            self.k = np.random.rand(num_sites)
+
+        elif self.algorithm == "kawasaki":
+            self.i1_coords = np.random.randint(0, self.size, size=num_sites)
+            self.j1_coords = np.random.randint(0, self.size, size=num_sites)
+            self.i2_coords = np.random.randint(0, self.size, size=num_sites)
+            self.j2_coords = np.random.randint(0, self.size, size=num_sites)
+            self.k = np.random.rand(num_sites)
+
+
     def local_energy(self, i , j):
         """
         Calculate the local energy of the site at (i, j) using the 4 nearest neighbours with periodic boundary conditions
@@ -97,13 +113,16 @@ class Lattice:
                 # Reject the new configuration, revert the spin
                 self.grid[i, j] = -proposed_spin
 
-    def kawaski_update(self, i1, j1, i2, j2, k):
+    def periodic_dist(self, a, b, L):
+        return min(abs(a - b), L - abs(a - b))
+
+    def kawasaki_update(self, i1, j1, i2, j2, k):
         """
         Perform a single Kawasaki update using the metropolis algorithm
             1. Calculate the change in energy ΔE if the spins at (i1, j1) and (i2, j2) are swapped
                 a. CHECK 1: If they are the same spin, do nothing 
                 b. CHECK 2: If they are adjacent, subtract the interaction energy between them 
-                ΔE = -2 * (local_energy_1 + local_energy_2) - 4 * J
+                ΔE = -2 * (local_energy_1 + local_energy_2) + 4 * J
                 c. If they are not adjacent: ΔE = -2 * (local_energy_1 + local_energy_2)
             2. If ΔE <= 0, accept the new configuration
             3. If ΔE > 0, accept the new configuration with probability exp(-ΔE / T), otherwise revert the spins
@@ -121,14 +140,19 @@ class Lattice:
         self.grid[i1, j1] = proposed_spin_1
         self.grid[i2, j2] = proposed_spin_2
 
-        new_energy_1 = self.local_energy(i1, j1)
-        new_energy_2 = self.local_energy(i2, j2)
+        delta_E = -2 * (old_energy_1 + old_energy_2)
 
-        delta_E = (new_energy_1 + new_energy_2) - (old_energy_1 + old_energy_2)
+        dx = self.periodic_dist(i1, i2, self.size)
+        dy = self.periodic_dist(j1, j2, self.size)
+        is_neighbor = (dx + dy == 1)
+
+        if is_neighbor:
+             delta_E += 4 * self.J
 
         if delta_E <= 0:
             self.current_totenergy += delta_E
             return
+        
         else:
             acceptance_prob = np.exp(-delta_E / self.T)
             if k < acceptance_prob:
@@ -139,33 +163,33 @@ class Lattice:
                 self.grid[i2, j2] = proposed_spin_1
         
 
-    def sweep(self):
+    def sweep(self, iter):
         """
         Performs a single sweep of the Metropolis algorithm over the entire lattice (N^2 proposed updates)
         *** Random numbers are generated in a single array to reduce the computation time. (2 sets of random numbers )
         """
-        num_sites = self.size ** 2
+        updates = self.size ** 2
 
         if self.algorithm == 'glauber':
-            i_coords = np.random.randint(0, self.size, size=num_sites)
-            j_coords = np.random.randint(0, self.size, size=num_sites)
-            k = np.random.rand(num_sites)
+            i_coords = self.i1_coords[iter * updates : (iter + 1) * updates]
+            j_coords = self.j1_coords[iter * updates : (iter + 1) * updates]
+            k = self.k[iter * updates : (iter + 1) * updates]
 
             for new_i, new_j, k_val in zip(i_coords, j_coords, k):
                 self.glauber_update(new_i, new_j, k_val)
 
         elif self.algorithm == 'kawasaki':
-            i1_coords = np.random.randint(0, self.size, size=num_sites)
-            j1_coords = np.random.randint(0, self.size, size=num_sites)
-            i2_coords = np.random.randint(0, self.size, size=num_sites)
-            j2_coords = np.random.randint(0, self.size, size=num_sites)
-            k = np.random.rand(num_sites)
+            i1_coords = self.i1_coords[iter * updates : (iter + 1) * updates]
+            j1_coords = self.j1_coords[iter * updates : (iter + 1) * updates]
+            i2_coords = self.i2_coords[iter * updates : (iter + 1) * updates]
+            j2_coords = self.j2_coords[iter * updates : (iter + 1) * updates]
+            k = self.k[iter * updates : (iter + 1) * updates]
 
             for i1, j1, i2, j2, k_val in zip(i1_coords, j1_coords, i2_coords, j2_coords, k):
                 while i1 == i2 and j1 == j2: # Ensure distinct sites, if the sites are the same, resample
                     i2 = np.random.randint(0, self.size)
                     j2 = np.random.randint(0, self.size)
-                self.kawaski_update(i1, j1, i2, j2, k_val)
+                self.kawasaki_update(i1, j1, i2, j2, k_val)
 
     def sim(self):
         """
@@ -176,10 +200,10 @@ class Lattice:
         3. Yield the sampled grid, magnetisation and total energy
         """
         for i in range(self.thermalisation):
-            self.sweep()
+            self.sweep(i)
 
         for i in range(self.iteration):
-            self.sweep()
+            self.sweep(i + self.thermalisation)
             if i % self.sampling == 0:
                 self.magnetisation.append(self.current_magnetisation)
                 self.totenergy.append(self.current_totenergy)
