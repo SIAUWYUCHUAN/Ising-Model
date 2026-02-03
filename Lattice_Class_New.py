@@ -83,6 +83,9 @@ class Lattice:
         down = self.grid[(i + 1) % self.size, j]
         return -self.J * self.grid[i, j] * (left + right + up + down)
     
+
+#__________________ Glauber Update Algorithm________________________________
+
     def glauber_update(self, i, j, k):
         """
         Perform a single Glauber update using the metropolis algorithm
@@ -112,6 +115,8 @@ class Lattice:
             else:
                 # Reject the new configuration, revert the spin
                 self.grid[i, j] = -proposed_spin
+
+#__________________ Kawasaki Update Algorithm________________________________
 
     def periodic_dist(self, a, b, L):
         return min(abs(a - b), L - abs(a - b))
