@@ -212,7 +212,7 @@ class Lattice:
             if i % self.sampling == 0:
                 self.magnetisation.append(self.current_magnetisation)
                 self.totenergy.append(self.current_totenergy)
-                yield self.grid.copy(), self.magnetisation.copy(), self.totenergy.copy()
+                yield self.grid.copy(), self.magnetisation.copy(), self.totenergy.copy() # return a copy of the grid and observables at every sweep
 
 
     def animate(self, interval=100):
@@ -220,32 +220,33 @@ class Lattice:
         Animates the Ising model simulation and keeps track of the Magnetisation and Total Energy
         """
         fig, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize=(15, 4))
+
         im = ax1.imshow(self.grid, cmap="coolwarm", vmin=-1, vmax=1, animated=True)
         ax1.set_title("Lattice")
         cbar = plt.colorbar(im, ax=ax1, ticks=[-1, 1])
         cbar.ax.set_yticklabels(['Spin Down', 'Spin Up'])
         
-        line, = ax2.plot([], [], 'o-', markersize=2)
+        line1, = ax2.plot([], [], 'o-', markersize=2)
         ax2.set_xlim(0, self.iteration)
         ax2.set_ylim(-5000, 5000)
-        ax2.set_title("Magnetization")
+        ax2.set_title(r"Magnetization $M$ against Sweeps")
         ax2.set_xlabel("Sweep")
-        ax2.set_ylabel("M")
+        ax2.set_ylabel("Magnetization $M$")
 
-        line3, = ax3.plot([], [], 'o-', markersize=2)
+        line2, = ax3.plot([], [], 'o-', markersize=2)
         ax3.set_xlim(0, self.iteration)
         ax3.set_ylim(-5000, 0)
-        ax3.set_title("Total Energy")
+        ax3.set_title(r"Lattice Energy $E$ [J] against Sweeps")
         ax3.set_xlabel("Sweep")
-        ax3.set_ylabel("E")
+        ax3.set_ylabel(r"Lattice Energy $E$ [J]")
 
         def update(frame):
             grid, mag, E = frame
             im.set_data(grid)
             x_vals = [k * self.sampling for k in range(len(mag))]
-            line.set_data(x_vals, mag)
-            line3.set_data(x_vals, E)
-            return [im, line, line3]
+            line1.set_data(x_vals, mag)
+            line2.set_data(x_vals, E)
+            return [im, line1, line2]
         
         ani = FuncAnimation(fig, update, frames=self.sim(), interval=interval, blit=True)
         plt.tight_layout()

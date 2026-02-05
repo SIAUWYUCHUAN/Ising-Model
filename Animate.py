@@ -1,10 +1,10 @@
 import matplotlib.pyplot as plt
 from matplotlib.animation import FuncAnimation
-from Lattice_Class import Lattice, Observables
+from Lattice_Class_New import Lattice, Observables
 import numpy as np
 import argparse
 
-# python Animate.py -N 50 -J 1 -T 2 -iter 1000 -algo glauber -therm 10 -sampling 10 -config hot
+# "python Animate.py -N 50 -J 1 -T 2 -iter 1000 -algo glauber -therm 10 -sampling 10 -config hot"
 
 parser = argparse.ArgumentParser(description="2D Ising Model Simulation")
 parser.add_argument("-N", type=int, default=50, help="Lattice size N")
@@ -24,7 +24,7 @@ ising = Lattice(size=args.N, J=args.J, T=args.T, iterations=args.iter,
 
 ani = ising.animate()
 
-compute = input("Compute Observables after Thermalisation? (yes/no): ")
+compute = input("Compute Observables after Thermalisation? (yes/no): ") # only compute if you know that the system has equilibrated
 
 if compute == 'yes':
     Measurements = Observables(ising)

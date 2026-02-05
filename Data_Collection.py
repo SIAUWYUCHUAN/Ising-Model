@@ -5,7 +5,16 @@ import json
 import os
 import argparse
 
+# Uncomment the last part to run on terminal
+# "python Data_Collection.py -size 15 -iter 1000 -sampling 10 -therm 200 -algo glauber -error jackknife -T_max 3.0 -T_min 1.0 -T_step 0.1 -direction heating -J 1 -plotting 1"
+
 def iterate_T(output_dir, size, iteration, sampling, thermalisation, algorithm, error_analysis, T, J, old_grid):
+    """
+    Iterate T runs the ising model for a single temperature by first creating a ising object using the Lattice Class
+    !!! The starting config here is a pre specified array from a previous simulation !!!
+
+    """
+
     ising = Lattice(size=size, J=J, T=T, iterations=iteration,
                     algorithm=algorithm, thermalisation=thermalisation,
                     sampling=sampling, start_config=old_grid)
@@ -30,46 +39,50 @@ def iterate_T(output_dir, size, iteration, sampling, thermalisation, algorithm, 
     return new_grid, Measurements
 
 
-def plot(T_vals, mag_list, mag_list_err, E_list, E_list_err, susceptibility_list, susceptibility_list_err, heat_capacity_list, heat_capacity_list_err):
+def plot(T_vals, mag_list, mag_list_err, E_list, E_list_err, susceptibility_list, susceptibility_list_err, heat_capacity_list, heat_capacity_list_err, size, algorithm):
 
-    plt.figure(figsize=(14, 10))
+    plt.figure(figsize=(11, 9))
+    plt.suptitle(f"2D Ising Model Simulations for N = {size} under {algorithm} dynamics", fontsize=15)
 
     # Average Magnetization per spin
     plt.subplot(2, 2, 1)
     plt.errorbar(T_vals, mag_list, yerr=mag_list_err, fmt='o', markersize=2, elinewidth=2, capsize=3)
-    plt.title(r"Magnetization $M$", fontsize=10)
-    plt.xlabel(r"Temperature $k_bT$", fontsize=9)
-    plt.ylabel(r"$\langle |M| \rangle$", fontsize=9)
+    plt.title(r"Average Magnetization $\langle |M| \rangle$ against Temperature [$k_bT$]", fontsize=10)
+    plt.xlabel(r"Temperature [$k_bT$]", fontsize=9)
+    plt.ylabel(r"Average Magnetization $\langle |M| \rangle$", fontsize=9)
 
     # Average Energy per spin
     plt.subplot(2, 2, 2)
     plt.errorbar(T_vals, E_list, yerr=E_list_err, fmt='s', markersize=2,
                 elinewidth=2, capsize=3)
-    plt.title(r"Energy $E$", fontsize=10)
-    plt.xlabel(r"Temperature $k_bT$", fontsize=9)
-    plt.ylabel(r"$\langle E \rangle$", fontsize=9)
+    plt.title(r"Average Energy  $\langle E \rangle$ [J] against Temperature [$k_bT$]", fontsize=10)
+    plt.xlabel(r"Temperature [$k_bT$]", fontsize=9)
+    plt.ylabel(r"Average Energy  $\langle E \rangle$ [J] ", fontsize=9)
 
     # Susceptibility
     plt.subplot(2, 2, 3)
     plt.errorbar(T_vals, susceptibility_list, yerr=susceptibility_list_err, fmt='^', markersize=2,
                 elinewidth=2, capsize=3)
-    plt.title(r"Magnetic Susceptibility $\chi$", fontsize=10)
-    plt.xlabel(r"Temperature $k_bT$", fontsize=9)
-    plt.ylabel(r"$\chi$", fontsize=9)
+    plt.title(r"Susceptibility $\chi$ against Temperature [$k_bT$]", fontsize=10)
+    plt.xlabel(r"Temperature [$k_bT$]", fontsize=9)
+    plt.ylabel(r"Susceptibility $\chi$", fontsize=9)
 
     # Heat Capacity
     plt.subplot(2, 2, 4)
     plt.errorbar(T_vals, heat_capacity_list, yerr=heat_capacity_list_err, fmt='d', markersize=2,
                 elinewidth=2, capsize=3)
-    plt.title(r"Heat Capacity $C_v$", fontsize=10)
-    plt.xlabel(r"Temperature $k_bT$", fontsize=9)
-    plt.ylabel(r"$C_v$", fontsize=9)
+    plt.title(r"Heat Capacity $C_v$ per spin [$k_b$] against Temperature [$k_bT$]", fontsize=10)
+    plt.xlabel(r"Temperature [$k_bT$]", fontsize=9)
+    plt.ylabel(r"Heat Capacity $C_v$ per spin [$k_b$]", fontsize=9)
 
-    plt.tight_layout()
+    plt.tight_layout(rect=[0, 0, 1, 0.96])
     plt.show()
 
 
-def run_all(output_dir, size, iteration, sampling, thermalisation, algorithm, error_analysis, T_vals, J, grid):
+def run_all(output_dir, size, iteration, sampling, thermalisation, algorithm, error_analysis, T_vals, J, grid, plotting):
+    """
+    Run_all computes the observables for Average magnetisation, Average energy, Heat capacity and susceptibility for a set of temperature values T_vals
+    """
     mag_list, mag_list_err = [], []
     E_list, E_list_err = [], []
     susceptibility_list, susceptibility_list_err = [], []
@@ -110,8 +123,9 @@ def run_all(output_dir, size, iteration, sampling, thermalisation, algorithm, er
         "susceptibility": {"values": susceptibility_list, "errors": susceptibility_list_err},
         "heat_capacity": {"values": heat_capacity_list, "errors": heat_capacity_list_err}
     }
-        
-    plot(T_vals, mag_list, mag_list_err, E_list, E_list_err, susceptibility_list, susceptibility_list_err, heat_capacity_list, heat_capacity_list_err)
+    
+    if plotting == 1:
+        plot(T_vals, mag_list, mag_list_err, E_list, E_list_err, susceptibility_list, susceptibility_list_err, heat_capacity_list, heat_capacity_list_err, size, algorithm)
 
     filename = os.path.join(output_dir, "Observables.json")
     with open(filename, "w") as f:
@@ -120,7 +134,12 @@ def run_all(output_dir, size, iteration, sampling, thermalisation, algorithm, er
     print("All_Results are saved into", filename)
 
 
-def collect_data(size, iteration, sampling, thermalisation, algorithm, error_analysis, direction, T_max, T_min, T_step, J):
+def collect_data(size, iteration, sampling, thermalisation, algorithm, error_analysis, direction, T_max, T_min, T_step, J, plotting):
+    """
+    Final funtion to initiate all data collection
+    users can specify the direct of heat transfer (Cooling or heating) - which will results in different starting conditions
+    """
+
     output_dir = f"{algorithm}_{size}_{direction}" # Output directory
     os.makedirs(output_dir, exist_ok=True)
 
@@ -139,13 +158,15 @@ def collect_data(size, iteration, sampling, thermalisation, algorithm, error_ana
         elif direction == 'heating':
             grid = np.ones((size, size), dtype=int) # ordered spin configuration up for heating
 
-    run_all(output_dir, size, iteration, sampling, thermalisation, algorithm, error_analysis, T_vals, J, grid)
+    run_all(output_dir, size, iteration, sampling, thermalisation, algorithm, error_analysis, T_vals, J, grid, plotting)
 
 
-# Comment this out to run it on terminal (Running on Jypter is currently faster)
-# # -----------------------------
-# # Argument parser
-# # -----------------------------
+#______________________________________________________________________________________________________________________________
+
+## Comment this out to run it on terminal (Running on Jypter notebook is currently faster)
+# -----------------------------
+# Argument parser
+# -----------------------------
 # parser = argparse.ArgumentParser(description="2D Ising Model Simulation over Temperature Range")
 
 # parser.add_argument("-size", type=int, default=50, help="Lattice size N")
@@ -159,6 +180,7 @@ def collect_data(size, iteration, sampling, thermalisation, algorithm, error_ana
 # parser.add_argument("-T_step", type=float, default=0.1, help="Temperature step_size")
 # parser.add_argument("-direction", type=str, default='cooling', choices=['cooling','heating'], help="Direction of temperature change")
 # parser.add_argument("-J", type=float, default= 1, help="Set the J value")
+# parser.add_argument("-plotting", type=int, default= 1, help="key 1 for plotting and 0 for no plots")
 
 # args = parser.parse_args()
 
@@ -176,5 +198,6 @@ def collect_data(size, iteration, sampling, thermalisation, algorithm, error_ana
 # T_min = args.T_min
 # T_step = args.T_step
 # J = args.J
+# plotting = args.plotting
 
-# collect_data(size, iteration, sampling, thermalisation, algorithm, error_analysis, direction, T_max, T_min, T_step, J)
+# collect_data(size, iteration, sampling, thermalisation, algorithm, error_analysis, direction, T_max, T_min, T_step, J, plotting)
